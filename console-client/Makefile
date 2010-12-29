@@ -50,8 +50,6 @@ console-LDFLAGS = -Wl,-E
 
 CPPFLAGS += -I$(srcdir)/xkb
 LFLAGS = -i
-# only bison is supported right now
-YACC = bison
 YFLAGS = -by
 
 # In seeking, thou shalt find it!
