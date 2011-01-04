@@ -132,7 +132,7 @@ key_timing (void *handle)
 	= fetch_jiffies () + key_delay;
       lastkey = current_key;
       
-      if (keys[current_key].flags & KEYNOREPEAT)
+      if (!XkbKeyRepeat(xkb_desc, current_key))
 	{
 	  per_key_timers[current_key].enable_status = timer_stopped;
 	  /* Stop the timer.  */
@@ -220,7 +220,7 @@ xkb_input_key (int key)
       xkb_handle_key (keyc);
 
       /* Check if this repeat is allowed for this keycode.  */
-      if (keys[keyc].flags & KEYNOREPEAT)
+      if (!XkbKeyRepeat(xkb_desc, keyc))
 	return 0; /* Nope.  */
 
       per_key_timers[keyc].enable_status = timer_repeat_delay;

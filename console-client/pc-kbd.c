@@ -803,7 +803,7 @@ input_loop (any_t unused)
         {
           keypress_t key;
 
-          key.keycode = read_keycode () + min_keys;
+          key.keycode = read_keycode () + xkb_desc->min_key_code;
           key.rel = key.keycode & 0x80;
           key.redir = 0;
 
@@ -1336,7 +1336,6 @@ pc_kbd_init (void **handle, int no_exit, int argc, char *argv[], int *next)
         return err;
     }
 
-  xkb_data_init ();
   err = xkb_load_layout (arguments.xkbdir, arguments.keymapfile,
                          arguments.keymap);
 

@@ -51,9 +51,7 @@ extern iconv_t cd;
 xkb_interpret_t *interpretations;
 
 /* All keysymbols and how they are handled by XKB.  */
-struct key *keys = NULL;
-int min_keys;
-int max_keys;
+struct xkb_desc *xkb_desc = NULL;
 
 /* The current set of modifiers.  */
 static modmap_t bmods;
@@ -333,6 +331,7 @@ static void
 set_indicator_mods (void)
 {
   int i;
+  struct xkb_indicator_map *indicators = xkb_desc->indicators->maps;
 
   /* Calculate the effective modmap.  */
   emods = bmods;
@@ -341,16 +340,16 @@ set_indicator_mods (void)
   emods.rmods |= latchedmods.rmods;
   emods.vmods |= latchedmods.vmods;
 
-  for (i = 0; i < indicator_count; i++)
+  for (i = 0; i < XkbNumIndicators; i++)
     {
       if (!(indicators[i].flags & IM_NoAutomatic))
 	{
 	  if (indicators[i].which_mods & IM_UseBase)
 	    {
-	      if (((indicators[i].modmap.rmods & bmods.rmods) ==
-		   indicators[i].modmap.rmods) &&
-		  ((indicators[i].modmap.vmods & bmods.vmods) == 
-		   indicators[i].modmap.vmods))
+	      if (((indicators[i].mods.real_mods & bmods.rmods) ==
+		   indicators[i].mods.real_mods) &&
+		  ((indicators[i].mods.vmods & bmods.vmods) == 
+		   indicators[i].mods.vmods))
 		{
 		  indicator_map |= (1 << i);
 		  continue;
@@ -358,10 +357,10 @@ set_indicator_mods (void)
 	    }
 	  if (indicators[i].which_mods & IM_UseLatched)
 	    {
-	      if (((indicators[i].modmap.rmods & latchedmods.rmods) == 
-		   indicators[i].modmap.rmods) &&
-		  ((indicators[i].modmap.vmods & latchedmods.vmods) == 
-		   indicators[i].modmap.vmods))
+	      if (((indicators[i].mods.real_mods & latchedmods.rmods) == 
+		   indicators[i].mods.real_mods) &&
+		  ((indicators[i].mods.vmods & latchedmods.vmods) == 
+		   indicators[i].mods.vmods))
 		{
 		  indicator_map |= (1 << i);
 		  continue;
@@ -369,10 +368,10 @@ set_indicator_mods (void)
 	    }
 	  if (indicators[i].which_mods & IM_UseLocked)
 	    {
-	      if (((indicators[i].modmap.rmods & lmods.rmods) == 
-		   indicators[i].modmap.rmods) &&
-		  ((indicators[i].modmap.vmods & lmods.vmods) == 
-		   indicators[i].modmap.vmods))
+	      if (((indicators[i].mods.real_mods & lmods.rmods) == 
+		   indicators[i].mods.real_mods) &&
+		  ((indicators[i].mods.vmods & lmods.vmods) == 
+		   indicators[i].mods.vmods))
 		{
 		  indicator_map |= (1 << i);
 		  continue;
@@ -380,10 +379,10 @@ set_indicator_mods (void)
 	    }
 	  if (indicators[i].which_mods & IM_UseEffective)
 	    {
-	      if (((indicators[i].modmap.rmods & emods.rmods) == 
-		   indicators[i].modmap.rmods) &&
-		  ((indicators[i].modmap.vmods & emods.vmods) == 
-		   indicators[i].modmap.vmods))
+	      if (((indicators[i].mods.real_mods & emods.rmods) == 
+		   indicators[i].mods.real_mods) &&
+		  ((indicators[i].mods.vmods & emods.vmods) == 
+		   indicators[i].mods.vmods))
 		{
 		  indicator_map |= (1 << i);
 		  continue;
@@ -568,7 +567,7 @@ latchgroup (keypress_t key, group_t sgroup, int flags)
   
   if (key.keycode == key.prevkc && oldlgroup == lgroup)
     {
-      if ((flags & latchToLock) && latchedgroup)
+      if ((flags & XkbSA_LatchToLock) && latchedgroup)
 	{
 	  lgroup += sgroup;
 	  latchedgroup -= sgroup;
@@ -584,7 +583,7 @@ lockgroup (keypress_t key, group_t group, int flags)
   debug_printf (">L: %d, g: %d\n", lgroup, group);
 
   keystate[key.keycode].oldgroup = lgroup;
-  if (flags & groupAbsolute)
+  if (flags & XkbSA_GroupAbsolute)
     lgroup = group;
   else
     lgroup += group;
@@ -718,7 +717,7 @@ static symbol handle_key (keypress_t);
    or when the action doesn't consume the key return true, otherwise
    return false.  */
 static int
-action_exec (xkb_action_t *action, keypress_t key)
+action_exec (union xkb_action *action, keypress_t key)
 {
   if (!action) 
     return KEYNOTCONSUMED;
@@ -730,14 +729,16 @@ action_exec (xkb_action_t *action, keypress_t key)
       /* LockMods: Lock/Unlock modifiers when the key is pressed.  */
     case SA_LockMods:
       {
-	action_setmods_t *setmodmap =  (action_setmods_t *) action;
-	modmap_t modm = setmodmap->modmap;
+        struct xkb_mod_action *setmodmap =  &action->mods;
+        modmap_t modm;
+        modm.rmods = setmodmap->real_mods;
+        modm.vmods = setmodmap->vmods;
 
 	/* UseModMap  */
 	if (setmodmap->flags & useModMap)
 	  {
-	    modm.rmods |= keys[key.keycode].mods.rmods;
-	    modm.vmods |= keys[key.keycode].mods.vmods;
+            modm.rmods |= xkb_desc->map->modmap[key.keycode];
+            modm.vmods |= xkb_desc->server->vmodmap[key.keycode];
 	  }
 	
 	setlocks (modm, key, setmodmap->flags);
@@ -748,16 +749,18 @@ action_exec (xkb_action_t *action, keypress_t key)
 	 used here often.  */
     case SA_SetMods: 
       {
-	action_setmods_t *setmodmap =  (action_setmods_t *) action;
-	modmap_t modm = setmodmap->modmap;
+        struct xkb_mod_action *setmodmap =  &action->mods;
+        modmap_t modm;
+        modm.rmods = setmodmap->real_mods;
+        modm.vmods = setmodmap->vmods;
 
 	/* UseModMapMods means: also use the real modifiers specified
 	   in the key's modmap.  */
 	if (setmodmap->flags & useModMap)
 	  {
 	    debug_printf ("Apply modmaps\n");
-	    modm.rmods |= keys[key.keycode].mods.rmods;
-	    modm.vmods |= keys[key.keycode].mods.vmods;
+            modm.rmods |= xkb_desc->map->modmap[key.keycode];
+            modm.vmods |= xkb_desc->server->vmodmap[key.keycode];
 	  }
 
 	/* When the key is pressed set the modifiers.  */
@@ -772,16 +775,17 @@ action_exec (xkb_action_t *action, keypress_t key)
 	 to the basegroup.  */
     case SA_LatchMods:
       {
-	action_setmods_t *setmodmap =  (action_setmods_t *) action;
+        struct xkb_mod_action *setmodmap =  &action->mods;
+        modmap_t modm;
+        modm.rmods = setmodmap->real_mods;
+        modm.vmods = setmodmap->vmods;
 
-	modmap_t modm = setmodmap->modmap;
-	    
 	/* UseModMapMods means: also use the real modifiers specified
 	   in the key's modmap.  */
 	if (setmodmap->flags & useModMap)
 	  {
-	    modm.rmods |= keys[key.keycode].mods.rmods;
-	    modm.vmods |= keys[key.keycode].mods.vmods;
+            modm.rmods |= xkb_desc->map->modmap[key.keycode];
+            modm.vmods |= xkb_desc->server->vmodmap[key.keycode];
 	  }
 
 	latchmods (modm, key, setmodmap->flags);
@@ -790,14 +794,14 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_SetGroup:
       {
-	action_setgroup_t *setgroupac =  (action_setgroup_t *) action;
+        struct xkb_group_action *setgroupac = &action->group;
 
 	setgroup (key, setgroupac->group, setgroupac->flags);
 	break;
       }
     case SA_LockGroup:
       {
-	action_setgroup_t *setgroupac =  (action_setgroup_t *) action;
+        struct xkb_group_action *setgroupac = &action->group;
 
 	if (!key.rel)
 	  lockgroup (key, setgroupac->group, setgroupac->flags);
@@ -805,7 +809,7 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_LatchGroup:
       {
-	action_setgroup_t *setgroupac =  (action_setgroup_t *) action;
+        struct xkb_group_action *setgroupac = &action->group;
 
 	latchgroup (key, setgroupac->group, setgroupac->flags);
 	break;
@@ -813,14 +817,14 @@ action_exec (xkb_action_t *action, keypress_t key)
 
     case SA_PtrBtn:
       {
-	action_ptrbtn_t *ptrbtnac = (action_ptrbtn_t *) action;
+        struct xkb_pointer_button_action *ptrbtnac = &action->btn;
 	int i;
 	int button;
 
 	if (!MouseKeys)
 	  return KEYNOTCONSUMED;
 
-	if (ptrbtnac->flags & useDfltBtn)
+        if (ptrbtnac->flags & XkbSA_UseDfltButton)
 	  button = default_button;
 	else
 	  button = ptrbtnac->button;
@@ -840,14 +844,14 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_LockPtrBtn:
       {
-	action_ptrbtn_t *ptrbtnac = (action_ptrbtn_t *) action;
+        struct xkb_pointer_button_action *ptrbtnac = &action->btn;
 
 	int button;
 
 	if (!MouseKeys)
 	  return  KEYNOTCONSUMED;
 
-	if (ptrbtnac->flags & useDfltBtn)
+        if (ptrbtnac->flags & XkbSA_UseDfltButton)
 	  button = default_button;
 	else
 	  button = ptrbtnac->button;
@@ -858,14 +862,14 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_SetPtrDflt:
       {
-	action_ptr_dflt_t *ptrdfltac = (action_ptr_dflt_t *) action;
+        struct xkb_pointer_default_action *ptrdfltac = &action->dflt;
 	    
 	if (!MouseKeys)
 	  return  KEYNOTCONSUMED;
 
 	if (!key.rel)
 	  {
-	    if (ptrdfltac->flags & DfltBtnAbsolute)
+            if (ptrdfltac->flags & XkbSA_DfltBtnAbsolute)
 	      default_button = ptrdfltac->value;
 	    else
 	      default_button += ptrdfltac->value;
@@ -885,12 +889,12 @@ action_exec (xkb_action_t *action, keypress_t key)
       break;
     case SA_SwitchScreen:
       {
-	action_switchscrn_t *switchscrnac = (action_switchscrn_t *) action;
+        struct xkb_switch_screen_action *switchscrnac = &action->screen;
 
 	if (key.rel)
 	  break;
 	    
-	if (switchscrnac->flags & screenAbs)
+        if (switchscrnac->flags & XkbSA_SwitchAbsolute)
 	  /* Switch to screen.  */
 	  console_switch ((char) switchscrnac->screen, 0); 
 	else
@@ -900,18 +904,18 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_RedirectKey:
       {
-	action_redirkey_t *redirkeyac = (action_redirkey_t *) action;	    
+        struct xkb_redirect_key_action *redirkeyac = &action->redirect;
 	
-	key.keycode = redirkeyac->newkey & (key.rel ? 0x80:0);
+        key.keycode = redirkeyac->new_key & (key.rel ? 0x80:0);
 	
 	/* For the redirected key other modifiers should be used.  */
 	emods.rmods = bmods.rmods | lmods.rmods | latchedmods.rmods;
 	emods.vmods = bmods.vmods | lmods.vmods | latchedmods.vmods;
 
-	emods.rmods &= ~redirkeyac->rmodsmask;
-	emods.rmods |= redirkeyac->rmods;
-	emods.vmods &= ~redirkeyac->vmods;
-	emods.vmods |= redirkeyac->vmodsmask;
+        emods.rmods &= ~redirkeyac->mods_mask;
+        emods.rmods |= redirkeyac->mods;
+        emods.vmods &= ~redirkeyac->vmods_mask;
+        emods.vmods |= redirkeyac->vmods;
 	
 	/* XXX: calc group etc.  */
 
@@ -920,12 +924,12 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_ConsScroll:
       {
-	action_consscroll_t *scrollac = (action_consscroll_t *) action;
+        struct xkb_consscroll_action *scrollac = &action->consscroll;
 	
 	if (key.rel)
 	  break;
 
-	if (scrollac->flags & usePercentage)
+        if (scrollac->flags & XkbSA_UsePercent)
 	  console_scrollback (CONS_SCROLL_ABSOLUTE_PERCENTAGE,
 			      100 - scrollac->percent);
 
@@ -934,7 +938,7 @@ action_exec (xkb_action_t *action, keypress_t key)
 
 	if (scrollac->line)
 	  {
-	    int type = (scrollac->flags & lineAbs) ? 
+            int type = (scrollac->flags & XkbSA_LineAbsolute) ? 
 	      CONS_SCROLL_ABSOLUTE_LINE : CONS_SCROLL_DELTA_LINES;
 	    console_scrollback (type, -scrollac->line);
 	  }
@@ -947,17 +951,17 @@ action_exec (xkb_action_t *action, keypress_t key)
       return KEYNOTCONSUMED;
     case SA_MovePtr:
       {
-	action_moveptr_t *moveptrac = (action_moveptr_t *) action;
+        struct xkb_pointer_action *moveptrac = &action->ptr;
 
 	if (!MouseKeys)
 	  return KEYNOTCONSUMED;
 
-	if (moveptrac->flags & MoveAbsoluteX)
+        if (moveptrac->flags & XkbSA_MoveAbsoluteX)
 	  mouse_x_move_to (moveptrac->x);
 	else
 	  mouse_x_move (moveptrac->x);
 	  
-	if (moveptrac->flags & MoveAbsoluteY)
+        if (moveptrac->flags & XkbSA_MoveAbsoluteY)
 	  mouse_y_move_to (moveptrac->y);
 	else
 	  mouse_y_move (moveptrac->y);
@@ -965,17 +969,17 @@ action_exec (xkb_action_t *action, keypress_t key)
       }
     case SA_SetControls:
       {
-	action_setcontrols_t *controlsac = (action_setcontrols_t *) action;
+        struct xkb_controls_action *controlsac = &action->ctrls;
 	if (key.rel)
-	  clearcontrols (key, controlsac->controls, 0);
+          clearcontrols (key, controlsac->ctrls, 0);
 	else
-	  setcontrols (key, controlsac->controls, 0);
+          setcontrols (key, controlsac->ctrls, 0);
 	break;
       }
     case SA_LockControls:
       {
-	action_setcontrols_t *controlsac = (action_setcontrols_t *) action;
-	lockcontrols (key, controlsac->controls, 0);
+        struct xkb_controls_action *controlsac = &action->ctrls;
+        lockcontrols (key, controlsac->ctrls, 0);
 	break;
       }
     default:
@@ -995,30 +999,35 @@ static int
 calc_shift (keycode_t key)
 {
   /* The keytype for this key.  */
-  struct keytype *keytype = keys[key].groups[egroup].keytype;
-  struct typemap *map;
+  struct xkb_key_type *keytype = XkbKeyKeyType (xkb_desc, key, egroup);
+  struct xkb_kt_map_entry *entry;
   
   /* XXX: Shouldn't happen, another way to fix this?  */
   if (!keytype)
     return 0;
     
-  /* Scan though all modifier to level maps of this keytype to search
+  /* Scan through all modifier to level maps of this keytype to search
      the level.  */
-  for (map = keytype->maps; map; map = map->next)
-    /* Does this map meet our requirements?  */
-    if (map->mods.rmods == (emods.rmods & keytype->modmask.rmods) &&
-	map->mods.vmods == (emods.vmods & keytype->modmask.vmods))
+  for (entry = keytype->map; entry != &keytype->map[keytype->map_count]; entry++)
+    if (entry->active &&
+        /* Does this map meet our requirements?  */
+        entry->mods.real_mods == (emods.rmods & keytype->mods.real_mods) &&
+        entry->mods.vmods == (emods.vmods & keytype->mods.vmods))
       {
-	/* Preserve all modifiers specified in preserve for this map.  */
-	emods.rmods &= ~(map->mods.rmods & (~map->preserve.rmods));
-	emods.vmods &= ~(map->mods.vmods & (~map->preserve.vmods));
-	return map->level;
+        if (keytype->preserve)
+          {
+            /* Preserve all modifiers specified in preserve for this map.  */
+            struct xkb_mods *preserve = &keytype->preserve[entry - keytype->map];
+            emods.rmods &= ~(entry->mods.real_mods & (~preserve->real_mods));
+            emods.vmods &= ~(entry->mods.vmods & (~preserve->vmods));
+          }
+        return entry->level;
       }
 
   /* When no map is found use the default shift level and consume all
      modifiers.  */
-  emods.vmods &= ~keytype->modmask.vmods;
-  emods.rmods &= ~keytype->modmask.rmods;
+  emods.vmods &= ~keytype->mods.vmods;
+  emods.rmods &= ~keytype->mods.real_mods;
 
   return 0;
 }
@@ -1084,15 +1093,15 @@ handle_key (keypress_t key)
 
   debug_printf ("groups\n");
   /* If the key does not have a group there is nothing to do.  */
-  if (keys[key.keycode].numgroups == 0)
+  if (XkbKeyNumGroups(xkb_desc, key.keycode) == 0)
     return -1;
 
   /* The effective group is the current group, but it can't be
      out of range.  */
   egroup = wrapgroup (bgroup + lgroup,
-		      keys[key.keycode].numgroups);
+                      XkbKeyNumGroups(xkb_desc, key.keycode));
 
-  if (keys[key.keycode].groups[egroup].actions)
+  if (XkbKeyHasActions(xkb_desc, key.keycode))
     {
       if (key.rel)
 	{
@@ -1105,7 +1114,7 @@ handle_key (keypress_t key)
 	  keystate[key.keycode].prevstate = 0;
 	  emods = keystate[key.keycode].prevmods;
 	  egroup = wrapgroup (keystate[key.keycode].prevgroup,
-			      keys[key.keycode].numgroups);
+                              XkbKeyNumGroups(xkb_desc, key.keycode));
 	}
       else /* This is a keypress event.  */
 	{
@@ -1122,11 +1131,11 @@ handle_key (keypress_t key)
       
       level = calc_shift (key.keycode);// % 
 
-      if (keys[key.keycode].groups[egroup].actionwidth >= level + 1
-	  && keys[key.keycode].groups[egroup].actions[level])
+      if (XkbKeyNumActions(xkb_desc, key.keycode) > level
+          && XkbKeyActionEntry(xkb_desc, key.keycode, level, egroup))
 	{
 	  actioncompl = action_exec
-	    (keys[key.keycode].groups[egroup].actions[level], key);
+            (XkbKeyActionEntry(xkb_desc, key.keycode, level, egroup), key);
 	}
     }
 
@@ -1140,12 +1149,12 @@ handle_key (keypress_t key)
     }
 
   debug_printf ("consumed: %d - %d -%d\n", actioncompl, key.rel,
-	  !keys[key.keycode].groups[egroup].width);
+          !XkbKeyGroupWidth (xkb_desc, key.keycode, egroup));
   /* If the action comsumed the keycode, this is a key release event
      or if the key doesn't have any symbols bound to it there is no
      symbol returned.  */
   if (actioncompl == KEYCONSUMED || key.rel ||
-      !keys[key.keycode].groups[egroup].width)
+      !XkbKeyGroupWidth (xkb_desc, key.keycode, egroup))
     return -1;
 
   /* Calculate the effective modmap.  */
@@ -1155,14 +1164,14 @@ handle_key (keypress_t key)
   emods.rmods |= latchedmods.rmods;
   emods.vmods |= latchedmods.vmods;
 
-  level = calc_shift (key.keycode) % keys[key.keycode].groups[egroup].width;
+  level = calc_shift (key.keycode) % XkbKeyGroupWidth (xkb_desc, key.keycode, egroup);
 
   /* The latched modifier is used for a symbol, clear it.  */
   latchedmods.rmods = latchedmods.vmods = 0;
 
   /* Search the symbol for this key in the keytable. Make sure the
      group and shift level exists.  */
-  sym = keys[key.keycode].groups[egroup].symbols[level];
+  sym = XkbKeySymEntry (xkb_desc, key.keycode, level, egroup);
   
   /* Convert keypad symbols to symbols. XXX: Is this the right place
      to do this? */
@@ -1372,18 +1381,50 @@ xkb_input (keypress_t key)
   size = 0;
 }
 
-error_t parse_xkbconfig (char *xkbdir, char *xkbkeymapfile, char *xkbkeymap);
-
 error_t
 xkb_load_layout (char *xkbdir, char *xkbkeymapfile, char *xkbkeymap)
 {
-  error_t err;
+  error_t err = 0;
 
-  err = parse_xkbconfig (xkbdir, xkbkeymapfile, xkbkeymap);
-  if (err)
-    return err;
+  if (xkbkeymapfile)
+    {
+      FILE* file;
+      size_t dir_len = strlen(xkbdir);
+      size_t name_len= strlen(xkbkeymapfile);
+      size_t separator = (xkbdir[dir_len - 1] == '/') ? 0 : 1;
+      size_t filename_len = dir_len + separator + name_len;
+      char *filename = malloc( filename_len + 1);
 
-  determine_keytypes ();
-  interpret_all ();
+      if (filename == NULL)
+        {
+          return ENOMEM;
+        }
+      strcpy(filename, xkbdir);
+      strcpy(filename + dir_len + separator, xkbkeymapfile);
+      if (separator)
+        filename[dir_len] = '/';
+      filename[filename_len] = 0;
+      
+      file = fopen (filename, "r");
+      if (file == NULL)
+        {
+          err = errno;
+          fprintf (stderr, "Couldn't open keymap file: %s.\n", filename);
+        }
+      else
+        {
+          xkb_desc = xkb_compile_keymap_from_file(file, xkbkeymap);
+          fclose(file);
+        }
+      free(filename);
+    }
+  else
+    {
+      extern const char *default_xkb_keymap;
+      xkb_desc = xkb_compile_keymap_from_string(default_xkb_keymap, NULL);
+    }
+  if (err || xkb_desc == NULL)
+      return err ? err : 1 /*???*/;
+
   return 0;
 }

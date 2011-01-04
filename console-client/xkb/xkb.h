@@ -299,9 +299,7 @@ typedef struct key
   struct modmap mods;
 } keyinf_t;
 
-extern struct key *keys;
-extern int min_keys;
-extern int max_keys;
+extern struct xkb_desc *xkb_desc;
 
 /* The current state of every key.  */
 typedef struct keystate
