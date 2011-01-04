@@ -23,8 +23,8 @@ targets = console
 CONSOLE_SRCS = console.c timer.c driver.c trans.c
 VGA_SO_SRCS = bdf.c vga-dynafont.c vga-dynacolor.c vga-support.c vga.c
 PC_KBD_SO_SRCS = pc-kbd.c kbd-repeat.c \
-	xkb/compose.c xkb/kstoucs.c xkb/parser.y xkb/lex.l \
-	xkb/symname.c xkb/xkb.c xkb/xkbdata.c xkb/xkbdefaults.c \
+	xkb/compose.c \
+	xkb/xkb.c xkb/xkbdefaults.c \
 	xkb/xkbtimer.c
 PC_MOUSE_SO_SRCS = pc-mouse.c
 GENERIC_SPEAKER_SO_SRCS = generic-speaker.c
@@ -115,9 +115,3 @@ $(XKB_DATA_DIR)/%: xkb/xkb-data/%
 		$(CFLAGS) $($*-CFLAGS) $(LDFLAGS) \
 		'-Wl,-(' $($*-LDLIBS) '-Wl,-)' $^
 
-lex.c: lex.l parser.tab.h
-parser.tab.h: parser.y
-	if $(YACC) $(YFLAGS) -d $<; then \
-	    mv y.tab.h $@; \
-	    rm y.tab.c; \
-	fi

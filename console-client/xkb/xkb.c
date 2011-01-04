@@ -35,7 +35,7 @@
 #include <hurd/console.h>
 #define XK_XKB_KEYS
 #define XK_MISCELLANY
-#include "keysymdef.h"
+#include <X11/keysymdef.h>
 #include <console-client/driver.h>
 #include <console-client/mach-inputdev.h>
 #include <wctype.h>
@@ -45,10 +45,6 @@ extern iconv_t cd;
 
 
 #define	NoSymbol	0
-
-/* All interpretations for compatibility.  (Translation from keysymbol
-   to actions).  */
-xkb_interpret_t *interpretations;
 
 /* All keysymbols and how they are handled by XKB.  */
 struct xkb_desc *xkb_desc = NULL;
@@ -92,8 +88,6 @@ static int MouseKeys = 0;
 /* Default mousebutton. */
 static int default_button = 0;
 
-static xkb_indicator_t *indicators;
-static int indicator_count;
 static int indicator_map = 0;
 
 /* unused
@@ -261,94 +255,6 @@ interpret_kc (keycode_t kc)
   free(new_actions);
 }
 
-
-/*  Test if c is an uppercase letter. */
-static int islatin_upper (int c)
-{
-  return (c >= 'A' && c <= 'Z');
-}
-
-/*  Test if c is an lowercase letter. */
-static int islatin_lower (int c)
-{
-  return (c >= 'a' && c <= 'z');
-}
-
-/*  A key is of the keytype KEYPAD when one of the symbols that can be produced
-    by this key is in the KEYPAD symbol range.  */
-static int
-iskeypad (int width, int *sym)
-{
-  int i;
-  
-  for (i = 0; i < width; i++, sym++)
-    {
-      /* Numlock is in the keypad range but shouldn't be of the type
-	 keypad because it will depend on itself in that case.  */
-      if (*sym == XK_Num_Lock)
-	return 0;
-      if (*sym >= KEYPAD_FIRST_KEY && *sym <= KEYPAD_LAST_KEY)
-	return 1;
-    }
-  return 0;   
-}
-
-/* Get the keytype (the keytype determines which modifiers are used
-   for shifting.
-
-   See FindAutomaticType@xkbcomp/symbols.c
-
-   These rules are used:
-
-   Simple recipe:
-     - ONE_LEVEL for width 0/1
-     - ALPHABETIC for 2 shift levels, with lower/upercase
-     - KEYPAD for keypad keys.
-     - TWO_LEVEL for other 2 shift level keys.
-     and the same for four level keys.
-
-   Otherwise, the key type is TWO_LEVEL.
- */
-static struct keytype *
-get_keytype (int width, symbol *sym)
-{
-  struct keytype *ktfound = NULL;
-
-  if (!sym)
-    ktfound = keytype_find ("TWO_LEVEL");
-  else if ((width == 1) || (width == 0))
-    ktfound = keytype_find ("ONE_LEVEL");
-  else if (width == 2) {
-    if (islatin_lower (sym[0]) && islatin_upper (sym[1]))
-      ktfound = keytype_find ("ALPHABETIC");
-    else if (iskeypad (width, sym))
-      ktfound = keytype_find ("KEYPAD");
-    else
-      ktfound = keytype_find ("TWO_LEVEL");
-  }
-  else if (width <= 4) {
-    if (islatin_lower (sym[0]) && islatin_upper (sym[1]))
-      if (islatin_lower(sym[2]) && islatin_upper(sym[3]))
-        ktfound = keytype_find ("FOUR_LEVEL_ALPHABETIC");
-      else
-        ktfound = keytype_find ("FOUR_LEVEL_SEMIALPHABETIC");
-    else if (iskeypad (2, sym))
-      ktfound = keytype_find ("FOUR_LEVEL_KEYPAD");
-    else
-      ktfound = keytype_find ("FOUR_LEVEL");
-  }
-
-  if (!ktfound)
-    ktfound = keytype_find ("TWO_LEVEL");
-  if (!ktfound)
-    {
-      console_error (L"Default keytypes have not been defined!\n");
-      exit (1);
-    }
-
-  return ktfound;
-}
-
 /* Create XKB style actions for every action described by keysymbols.  */
 static void
 interpret_all (void)
@@ -358,25 +264,6 @@ interpret_all (void)
   /* Check every key.  */
   for (curkc = xkb_desc->min_key_code; curkc < xkb_desc->max_key_code; curkc++)
     interpret_kc (curkc);
-}
-
-static void
-determine_keytypes (void)
-{
-  keycode_t curkc;
-
-  /* Check every key.  */
-  for (curkc = 0; curkc < max_keys; curkc++)
-    {
-      group_t group;
-      for (group = 0; group < 4; group++)
-	{
-	  struct keygroup *kg = &keys[curkc].groups[group];
-
-	  if (!kg->keytype)
-	    kg->keytype = get_keytype (kg->width, kg->symbols);
-	}
-    }
 }
 
 /* Wrap the group GROUP into a valid group range. The method to use is
