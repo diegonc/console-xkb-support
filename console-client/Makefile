@@ -39,7 +39,7 @@ LCLHDRS = timer.h driver.h display.h input.h bell.h \
 	  unicode.h bdf.h mach-inputdev.h \
 	  vga-dynafont.h vga-dynacolor.h vga-hw.h vga-support.h \
 	  trans.h \
-	  xkb/keysymdef.h xkb/ks_tables.h xkb/xkb.h
+	  xkb/xkb.h
 
 VPATH += $(srcdir)/xkb
 OBJS = $(addsuffix .o,$(basename $(notdir $(SRCS)))) kdioctlServer.o
@@ -49,8 +49,6 @@ module-dir = $(libdir)/hurd/console
 console-LDFLAGS = -Wl,-E
 
 CPPFLAGS += -I$(srcdir)/xkb
-LFLAGS = -i
-YFLAGS = -by
 XKB_DATA_DIR = $(datadir)/X11/xkb
 XKB_DATA_FILES = keymap/hurd types/hurd symbols/hurd
 
