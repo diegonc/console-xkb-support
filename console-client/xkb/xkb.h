@@ -18,6 +18,7 @@
 #include <argp.h>
 //#include "kbd_driver.h"
 #include <X11/extensions/XKBcommon.h>
+#include <X11/extensions/XKBhurd-console.h>
 
 typedef int keycode_t;
 typedef unsigned int scancode_t;
