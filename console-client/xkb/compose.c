@@ -253,7 +253,7 @@ parse_composefile (FILE *cf)
 	}
 
       /* Keysym was recognised, add it.  */
-      sym = XStringToKeysym (tok.value);
+      sym = xkb_string_to_keysym (tok.value);
       if (!sym)
 	{
 	  printf ("Warning: line %d: Unknown keysym \"%s\".\n", linenum, 
@@ -269,7 +269,7 @@ parse_composefile (FILE *cf)
 	  /* If another required keysym is recognised, add it.  */
 	  if (tok.toktype == REQKS)
 	    {
-	      sym = XStringToKeysym (tok.value);
+	      sym = xkb_string_to_keysym (tok.value);
 	      if (!sym)
 		{
 		  printf ("Warning: line %d: Unknown keysym \"%s\".\n", 
@@ -304,7 +304,7 @@ parse_composefile (FILE *cf)
 	  skip_line ();
 	  continue;
 	}
-      sym = XStringToKeysym (tok.value);
+      sym = xkb_string_to_keysym (tok.value);
       if (!sym)
 	{
 	  printf ("Warning: line %d: Unknown keysym \"%s\".\n", linenum,

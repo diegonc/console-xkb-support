@@ -137,7 +137,6 @@ typedef struct keypress
 #define	IM_UseLatched	0x02
 #define	IM_UseBase	0x01
 
-unsigned int KeySymToUcs4(int keysym);
 symbol compose_symbols (symbol symbol);
 error_t read_composefile (char *);
 

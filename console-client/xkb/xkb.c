@@ -1324,7 +1324,7 @@ xkb_input (keypress_t key)
 	input = symtoctrlsym (input);
 	  
       /* Convert the Keysym to a UCS4 characted.  */
-      input = KeySymToUcs4 (input);
+      input = xkb_keysym_to_ucs4 (input);
       /* 	      if (!input) */
       /* 		continue; */
 
