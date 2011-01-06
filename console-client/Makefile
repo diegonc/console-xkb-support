@@ -51,6 +51,8 @@ console-LDFLAGS = -Wl,-E
 CPPFLAGS += -I$(srcdir)/xkb
 XKB_DATA_DIR = $(datadir)/X11/xkb
 XKB_DATA_FILES = keymap/hurd types/hurd symbols/hurd
+# XXX: add to configure
+LIBXKBCOMMON = $(libdir)/libxkbcommon.a
 
 # In seeking, thou shalt find it!
 CPPFLAGS += -DQUAERENDO_INVENIETIS
@@ -75,7 +77,7 @@ vga-CPPFLAGS = -DDEFAULT_VGA_FONT_DIR=\"${datadir}/hurd/\"
 pc-kbd-CFLAGS = -DXKB_SUPPORT -DXKB_DATA_DIR=\"$(XKB_DATA_DIR)\"
 vga.so.$(hurd-version): $(patsubst %.c,%_pic.o,$(VGA_SO_SRCS))
 pc_kbd.so.$(hurd-version): $(addsuffix _pic.o, $(basename $(notdir $(PC_KBD_SO_SRCS)))) \
-	kdioctlServer_pic.o
+	kdioctlServer_pic.o $(LIBXKBCOMMON)
 pc_mouse.so.$(hurd-version): $(patsubst %.c,%_pic.o,$(PC_MOUSE_SO_SRCS))
 generic_speaker.so.$(hurd-version): $(patsubst %.c,%_pic.o,$(GENERIC_SPEAKER_SO_SRCS))
 current_vcs.so.$(hurd-version): $(patsubst %.c,%_pic.o,$(CURRENT_VCS_SO_SRCS))
