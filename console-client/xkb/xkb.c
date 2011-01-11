@@ -272,7 +272,7 @@ interpret_all (void)
   keycode_t curkc;
 
   /* Check every key.  */
-  for (curkc = 0; curkc < max_keys; curkc++)
+  for (curkc = xkb_desc->min_key_code; curkc < xkb_desc->max_key_code; curkc++)
     interpret_kc (curkc);
 }
 
