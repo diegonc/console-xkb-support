@@ -1426,5 +1426,7 @@ xkb_load_layout (char *xkbdir, char *xkbkeymapfile, char *xkbkeymap)
   if (err || xkb_desc == NULL)
       return err ? err : 1 /*???*/;
 
+  /* Assign actions to symbols. */
+  interpret_all();
   return 0;
 }
