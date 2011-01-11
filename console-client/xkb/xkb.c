@@ -1093,7 +1093,13 @@ calc_shift (keycode_t key)
   /* Scan through all modifier to level maps of this keytype to search
      the level.  */
   for (entry = keytype->map; entry != &keytype->map[keytype->map_count]; entry++)
-    if (entry->active &&
+    /* The X Keyboard Extension: Protocol Specification
+         7.2 Determining the KeySym Associated with a Key Event
+       "Map entries which specify unbound virtual modifiers are not considered;
+        each entry contains an automatically-updated active field which
+        indicates whether or not it should be used."
+       TODO: update active field and use it.  */
+    if (/* entry->active && */
         /* Does this map meet our requirements?  */
         entry->mods.real_mods == (emods.rmods & keytype->mods.real_mods) &&
         entry->mods.vmods == (emods.vmods & keytype->mods.vmods))
