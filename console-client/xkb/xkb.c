@@ -116,65 +116,149 @@ debug_printf (const char *f, ...)
 }
 
 
+/* References:
+     The X Keyboard Extension: Protocol Specification
+       12.2.4 Assigning Actions To Keys.
+       12.2.5 Updating Everything Else.  */
 static void
 interpret_kc (keycode_t kc)
 {
-  int cursym;
-  int rmods = keys[kc].mods.rmods;
-  struct xkb_interpret *interp;
+  int rmods = xkb_desc->map->modmap ? xkb_desc->map->modmap[kc] : 0;
 
-  for (interp = interpretations; interp; interp = interp->next)
+  int sym_index = 0;
+  uint32_t *cursym = XkbKeySymsPtr (xkb_desc, kc);
+  int hasActions = 0;
+  union xkb_action *new_actions = NULL;
+
+  /* "Setting the ExplicitInterp component prevents the application of
+      symbol interpretations to that key."  */
+  if (xkb_desc->server->explicit[kc] & XkbExplicitInterpretMask)
+    return;
+
+  if (XkbKeyNumSyms (xkb_desc, kc) > 0)
     {
-      group_t group;
-
-      for (group = 0; group < keys[kc].numgroups; group++)
-	{
-	  int width =  keys[kc].groups[group].width;
-
-	  for (cursym = 0; cursym < width; cursym++)
-	    {
-	      int symbol = keys[kc].groups[group].symbols[cursym];
-
-	      /* Check if a keysymbol requirement exists or if it
-		 matches.  */
-	      if (interp->symbol == 0 ||
-		  (symbol && (interp->symbol == symbol)))
-		{
-		  int flags = interp->match & 0x7f;
-
-		  /* XXX: use enum.  */
-		  if ((flags == 0 && (!(interp->rmods & rmods))) ||
-		      (flags == 1) ||
-		      (flags == 2 && (interp->rmods & rmods)) ||
-		      (flags == 3 && ((interp->rmods & rmods) ==
-				      interp->rmods)) ||
-		      (flags == 4 && interp->rmods == rmods))
-		    {
-		      xkb_action_t *action;
-
-		      if (keys[kc].groups[group].actionwidth > cursym && 
-			  keys[kc].groups[group].actions[cursym] &&
-			  keys[kc].groups[group].actions[cursym]->type != 
-			  SA_NoAction)
-			continue;
-
-/* 		      if (action->type == 13) */
-/* 			printf ("AA %d AAAAAAAAAAAAAAA %d: %d - %d\n", kc, flags, symbol, interp->symbol);  */
-
-		      action = malloc (sizeof (xkb_action_t));
-		      memcpy (action, &interp->action, sizeof (xkb_action_t));
-		      
-		      key_set_action (&keys[kc], group, cursym, action);
-
-		      keys[kc].flags = interp->flags | KEYHASACTION;
-		      if (!keys[kc].mods.vmods)
-			keys[kc].mods.vmods = interp->vmod;
-		    }  
-		}
-	    }
-	}
+      new_actions = (union xkb_action *) malloc (XkbKeyNumSyms(xkb_desc, kc)
+                * sizeof (union xkb_action));
+      if (new_actions == NULL)
+        return;
     }
 
+  for (; sym_index < XkbKeyNumSyms (xkb_desc, kc); sym_index++, cursym++)
+    {
+      unsigned level = sym_index % XkbKeyGroupsWidth (xkb_desc, kc);
+      int symbol = *cursym;
+      int interp_index = 0;
+      /* "If no interpretations match a given symbol or key, the server
+          uses: SA_NoAction, autorepeat enabled, non-locking key. with no
+          virtual modifiers. "  */
+      static struct xkb_sym_interpret default_interpret = {
+          .sym = NoSymbol, .flags = XkbSI_AutoRepeat,
+          .match = XkbSI_AnyOfOrNone, .mods = 0, .virtual_mod = XkbNoModifier,
+          .act = { XkbSA_NoAction }
+      };
+      struct xkb_sym_interpret *matched_interp = &default_interpret;
+      struct xkb_sym_interpret *interp = xkb_desc->compat->sym_interpret;
+
+      for (; interp_index < xkb_desc->compat->num_si; interp_index++, interp++)
+        {
+	  /* Check if a keysymbol requirement exists or if it
+	     matches.  */
+          if (interp->sym == 0 ||
+              (symbol && (interp->sym == symbol)))
+	     {
+              int flags = interp->match & XkbSI_OpMask;
+              int mods = rmods;
+
+              /* "The levelOneOnly setting, indicates that the interpretation
+                  in question should only use the modifiers bound to this key
+                  by the modifier mapping if the symbol that matches is in
+                  level one of its group Otherwise [snip] the server behaves
+                  as if the modifier map for the key were empty."  */
+              if ( (level != 0) && (interp->match & XkbSI_LevelOneOnly) )
+                  mods = 0;
+
+              if ((flags == XkbSI_NoneOf && (!(interp->mods & mods))) ||
+                  (flags == XkbSI_AnyOfOrNone &&
+                      (mods == 0 || (interp->mods & mods))) ||
+                  (flags == XkbSI_AnyOf && (interp->mods & mods)) ||
+                  (flags == XkbSI_AllOf && ((interp->mods & mods) ==
+                      interp->mods)) ||
+                  (flags == XkbSI_Exactly && interp->mods == mods))
+	        {
+                  /* "The server considers all symbol interpretations which
+                      specify an explicit keysym before considering any that
+                      do not."  */
+                  if (interp->sym != NoSymbol)
+                    {
+                      matched_interp = interp;
+                      break;
+                    }
+                  /* "The server uses the first interpretation which matches
+                      the given combination of keysym and modifier mapping;
+                      other matching interpretations are ignored."  */
+                  else if (matched_interp == &default_interpret)
+                    matched_interp = interp;
+                }
+            }
+        }
+
+      if (matched_interp->act.type != XkbSA_NoAction)
+        hasActions = 1;
+
+      /* "Applying a symbol interpretation can affect several aspects of the
+          XKB definition of the key symbol mapping to which it is applied:
+            - The action [snip]"  */
+      new_actions[sym_index].any = matched_interp->act;
+
+      /* "  - [snip] the autorepeat behaviour [snip]"  */
+      if ( (sym_index == 0) &&
+          !(xkb_desc->server->explicit[kc] & XkbExplicitAutoRepeatMask))
+        {
+          if (matched_interp->flags & XkbSI_AutoRepeat)
+            xkb_desc->ctrls->per_key_repeat[kc / 8] |= (1 << (kc % 8));
+          else
+            xkb_desc->ctrls->per_key_repeat[kc / 8] &= ~(1 << (kc % 8));
+        }
+
+      /*    - virtual modifier
+         "The ExplicitVModMap  component guards the virtual modifier map for
+          a key from automatic changes. If the levelOneOnly  flag is set for
+          the interpretation, and the symbol in question is not in position
+          G1L1, the virtual modifier map is not updated."  */
+      if (((xkb_desc->server->explicit[kc] & XkbExplicitVModMapMask) == 0) &&
+          ((matched_interp->match & XkbSI_LevelOneOnly) == 0 || (sym_index == 0)) &&
+          (matched_interp->virtual_mod != XkbNoModifier))
+          /* "If the symbol interpretation specifies an associated virtual
+              modifier, that virtual modifier is *added* to the virtual modifier
+              map for the key."  */
+          xkb_desc->server->vmodmap[kc] |= (1 << matched_interp->virtual_mod);
+
+      /* "  - [snip] the behaviour of the key [snip]"  */
+      if ( (sym_index == 0) &&
+          !(xkb_desc->server->explicit[kc] & XkbExplicitBehaviorMask) &&
+           (matched_interp->flags & XkbSI_LockingKey))
+        xkb_desc->server->behaviors[kc].type = XkbKB_Lock;
+  }
+
+  if (hasActions)
+    {
+      int i;
+      union xkb_action *final_actions = XkbcResizeKeyActions(xkb_desc, kc,
+                                            XkbKeyNumSyms(xkb_desc, kc));
+      for (i=0; i < XkbKeyNumSyms(xkb_desc, kc); i++)
+        final_actions[i] = new_actions[i];
+    }
+  else
+    /* "If all of the actions computed for a key are SA_NoAction , the server
+        assigns an length zero list of actions to the key."  */
+    XkbcResizeKeyActions(xkb_desc, kc, 0);
+
+  /* "If any virtual modifiers change, XKB updates all of its data structures
+      to reflect the change. Applying virtual modifier changes to the keyboard
+      mapping might result in changes to types, the group compatibility map,
+      indicator maps, internal modifiers or ignore locks modifiers."  */
+  /* TODO: track changes and trigger updates. */
+  free(new_actions);
 }
 
 
