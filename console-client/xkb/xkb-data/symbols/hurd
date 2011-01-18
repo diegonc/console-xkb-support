@@ -70,12 +70,14 @@ xkb_symbols "hurd" {
   // Alt is held down. 
   key <LEFT>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), SwitchScreen (screen = -1),
  			  NoAction () ]
     };
   key <RGHT>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), SwitchScreen (screen = +1),
 			  NoAction  () ]
@@ -84,11 +86,13 @@ xkb_symbols "hurd" {
   // Scroll the console up or down (one line).
   key <UP>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), ConsScroll (line = -1) ]
     };
   key <DOWN>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), ConsScroll (line = +1) ]
     };
@@ -96,12 +100,14 @@ xkb_symbols "hurd" {
   // Scroll the console up or down (1/2 screen).
   key <PGUP>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), NoAction (),
 			  ConsScroll (screen = -0.5) ]
     };
   key <PGDN>
     {
+      repeat = Yes,
       type[Group1] = "HURD",
       actions[Group1] = [ NoAction (), NoAction (),
 			  ConsScroll (screen = +0.5) ]
